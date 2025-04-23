@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import re
@@ -10,7 +11,11 @@ kiwi = Kiwi()
 
 @st.cache_data
 def load_vocab():
-    df = pd.read_csv("사고도구어(1~4등급)(가공).csv")
+    try:
+        df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="cp949")
+
     vocab_dict = {}
     column_level_map = {
         "1등급 단어족": 1,
@@ -26,7 +31,7 @@ def load_vocab():
 
 @st.cache_data
 def load_grade_ranges():
-    df = pd.read_csv("온독지수범위.csv")
+    df = pd.read_csv("온독지수범위.csv", encoding="utf-8-sig")
     ranges = []
     for _, row in df.iterrows():
         try:
