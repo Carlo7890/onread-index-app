@@ -10,16 +10,23 @@ kiwi = Kiwi()
 
 @st.cache_data
 def load_vocab():
-    df_all = pd.read_excel("사고도구어(1~4등급)(가공).xlsx", sheet_name=None)
-    word_dict = {}
-    for level, df in df_all.items():
-        for word in df["단어족"]:
-            word_dict[str(word).strip()] = int(level[0])
-    return word_dict
+    df = pd.read_csv("사고도구어(1~4등급)(가공).csv")
+    vocab_dict = {}
+    column_level_map = {
+        "1등급 단어족": 1,
+        "2등급 단어족": 2,
+        "3등급 단어족": 3,
+        "4등급 단어족": 4
+    }
+    for column, level in column_level_map.items():
+        if column in df.columns:
+            for word in df[column].dropna():
+                vocab_dict[str(word).strip()] = level
+    return vocab_dict
 
 @st.cache_data
 def load_grade_ranges():
-    df = pd.read_excel("온독지수범위.xlsx")
+    df = pd.read_csv("온독지수범위.csv")
     ranges = []
     for _, row in df.iterrows():
         try:
@@ -46,12 +53,16 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
         for base, level in vocab_dict.items():
-            if (base in token or token in base or token.startswith(base) or base.startswith(token)):
-                if token not in seen:
-                    seen.add(token)
-                    used.append((token, level))
-                    total += 1
-                    weighted += level
+            matched = (
+                token == base or
+                (base in token and base != token and len(base) >= 3) or
+                (token in base and token != base and len(token) >= 3)
+            )
+            if matched and token not in seen:
+                seen.add(token)
+                used.append((token, level))
+                total += 1
+                weighted += level
                 break
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
@@ -63,7 +74,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     level = "~".join(matched) if len(matched) > 1 else matched[0] if matched else "해석 불가"
     return round(index), level, used, total, len(tokens)
 
-st.title("📘 온독지수 자동 분석기")
+st.title("📘 온독지수 자동 분석기 (CSV 기반)")
 vocab_dict = load_vocab()
 grade_ranges = load_grade_ranges()
 
