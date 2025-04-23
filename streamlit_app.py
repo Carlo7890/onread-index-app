@@ -4,24 +4,18 @@ import re
 import base64
 import requests
 from PIL import Image
+from kiwipiepy import Kiwi
 
-# 사고도구어 사전 불러오기
+kiwi = Kiwi()
+
+# 사고도구어 사전 로딩
 @st.cache_data
 def load_vocab():
     df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
     vocab_dict = {}
-    level_map = {
-        "1등급 단어족": 1,
-        "2등급 단어족": 2,
-        "3등급 단어족": 3,
-        "4등급 단어족": 4
-    }
-    for col, level in level_map.items():
-        if col in df.columns:
-            for word in df[col].dropna():
-                base = str(word).strip()
-                if len(base) >= 2:
-                    vocab_dict[base] = level
+    for col, level in zip(df.columns, range(1, 5)):
+        for word in df[col].dropna():
+            vocab_dict[str(word).strip()] = level
     return vocab_dict
 
 # 온독지수 범위 불러오기
@@ -37,49 +31,51 @@ def load_grade_ranges():
             continue
     return ranges
 
-# Vision API로 OCR 텍스트 추출
+# Google Vision API OCR
 def call_vision_api(image_bytes):
     api_key = st.secrets["vision_api_key"]
     url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
     response = requests.post(url, json={
-        "requests": [{
-            "image": {"content": image_base64},
-            "features": [{"type": "TEXT_DETECTION"}]
-        }]
+        "requests": [{"image": {"content": image_base64}, "features": [{"type": "TEXT_DETECTION"}]}]
     })
     try:
         return response.json()["responses"][0]["fullTextAnnotation"]["text"]
     except:
         return ""
 
-# 온독지수 계산 로직 (부분 포함 허용)
+# 온독지수 계산
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    seen, used, total, weighted = set(), [], 0, 0
-    word_tokens = re.findall(r"[\w가-힣]+", text)
+    tokens = [t.form for t, _, _ in kiwi.analyze(text)[0][0]]
 
-    for vocab_word, level in vocab_dict.items():
-        if vocab_word in text:
-            if vocab_word not in seen:
-                seen.add(vocab_word)
-                used.append((vocab_word, level))
-                total += 1
-                weighted += level
+    seen, used, total, weighted = set(), [], 0, 0
+    for token in tokens:
+        if token in vocab_dict and token not in seen:
+            level = vocab_dict[token]
+            seen.add(token)
+            used.append((token, level))
+            total += 1
+            weighted += level
 
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
 
+    word_tokens = re.findall(r"[\w가-힣]+", text)
     cttr = min(len(seen) / (2 * total)**0.5, 1.0)
     norm_weight = weighted / (4 * total)
     density = total / len(word_tokens)
     index = ((0.7 * cttr + 0.3 * norm_weight) * 500 + 100) * (0.5 + 0.5 * density)
 
+    if len(word_tokens) < 5:
+        index *= 0.6  # 짧은 문장 보정
+
     matched = [g for s, e, g in grade_ranges if s <= index < e]
     level = "~".join(matched) if len(matched) > 1 else matched[0] if matched else "해석 불가"
     return round(index), level, used, total, len(word_tokens)
 
-# UI 구성
+# Streamlit 앱 시작
 st.title("📘 온독지수 자동 분석기")
+
 vocab_dict = load_vocab()
 grade_ranges = load_grade_ranges()
 
@@ -120,4 +116,3 @@ if trigger:
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
-
