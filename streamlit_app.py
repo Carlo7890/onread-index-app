@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import re
@@ -58,12 +57,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
         for base, level in vocab_dict.items():
-            matched = (
-                token == base or
-                (base in token and base != token and len(base) >= 3) or
-                (token in base and token != base and len(token) >= 3)
-            )
-            if matched and token not in seen:
+            if base in token and token not in seen:
                 seen.add(token)
                 used.append((token, level))
                 total += 1
@@ -79,7 +73,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     level = "~".join(matched) if len(matched) > 1 else matched[0] if matched else "해석 불가"
     return round(index), level, used, total, len(tokens)
 
-st.title("📘 온독지수 자동 분석기 (CSV 기반)")
+st.title("📘 온독지수 자동 분석기")
 vocab_dict = load_vocab()
 grade_ranges = load_grade_ranges()
 
@@ -120,3 +114,4 @@ if trigger:
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
+
