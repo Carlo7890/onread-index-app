@@ -61,7 +61,10 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     norm_weighted = weighted_sum / (4 * total)
     total_words = len(re.findall(r"[\w가-힣]+", text))
     density = total / total_words if total_words > 0 else 0
-    index = ((0.7 * cttr + 0.3 * norm_weighted) * density) * 500 + 100
+
+    # 완충된 밀도 보정 적용
+    density_factor = 0.5 + 0.5 * density
+    index = ((0.7 * cttr + 0.3 * norm_weighted) * 500 + 100) * density_factor
 
     matched_levels = [grade for start, end, grade in grade_ranges if start <= index < end]
     if not matched_levels:
@@ -94,13 +97,13 @@ elif input_method == "이미지 업로드":
 
 if text:
     score, level, used_words, total_count, total_words = calculate_onread_index(text, vocab_dict, grade_ranges)
-    if total_count < 5:
-        st.warning("⚠️ 문장이 너무 짧아 온독지수 결과를 신뢰하기 어렵습니다. 사고도구어가 5개 이상 사용된 문장을 입력해주세요.")
-    elif score == 0:
+    if score == 0:
         st.warning(level)
     else:
         st.success(f"✅ 온독지수: {score}점 ({level})")
         st.caption(f"(총 단어 수: {total_words} / 사고도구어 수: {total_count})")
+        if total_count < 3:
+            st.info("ℹ️ 문장이 짧아 사고도구어 수가 적지만, 결과는 참고용으로 제공됩니다.")
         if score > 500:
             st.info("💡 온독지수가 고3 수준(500점)을 초과하였습니다. 매우 높은 수준의 사고도구어를 활용하고 있습니다.")
         if used_words:
