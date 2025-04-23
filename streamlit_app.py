@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
 import re
-from kiwipiepy import Kiwi
 import base64
 import requests
 from PIL import Image
 
-kiwi = Kiwi()
-
+# 사고도구어 불러오기
 @st.cache_data
 def load_vocab():
     df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
@@ -26,6 +24,7 @@ def load_vocab():
                     vocab_dict[base] = level
     return vocab_dict
 
+# 온독지수 범위 로딩
 @st.cache_data
 def load_grade_ranges():
     df = pd.read_csv("온독지수범위.csv", encoding="utf-8-sig")
@@ -38,6 +37,7 @@ def load_grade_ranges():
             continue
     return ranges
 
+# Google Vision API OCR
 def call_vision_api(image_bytes):
     api_key = st.secrets["vision_api_key"]
     url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
@@ -50,27 +50,32 @@ def call_vision_api(image_bytes):
     except:
         return ""
 
+# 온독지수 계산 (문장 내 직접 매칭 방식)
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    tokens = [token.form for token in kiwi.analyze(text)[0][0]]
     seen, used, total, weighted = set(), [], 0, 0
-    for token in tokens:
-        if token in vocab_dict:
-            level = vocab_dict[token]
-            if token not in seen:
-                seen.add(token)
-                used.append((token, level))
+    word_tokens = re.findall(r"[\w가-힣]+", text)
+
+    for vocab_word, level in vocab_dict.items():
+        if re.search(rf"\b{re.escape(vocab_word)}\b", text):
+            if vocab_word not in seen:
+                seen.add(vocab_word)
+                used.append((vocab_word, level))
                 total += 1
                 weighted += level
+
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
+
     cttr = min(len(seen) / (2 * total)**0.5, 1.0)
     norm_weight = weighted / (4 * total)
-    density = total / len(re.findall(r"[\w가-힣]+", text))
+    density = total / len(word_tokens)
     index = ((0.7 * cttr + 0.3 * norm_weight) * 500 + 100) * (0.5 + 0.5 * density)
+
     matched = [g for s, e, g in grade_ranges if s <= index < e]
     level = "~".join(matched) if len(matched) > 1 else matched[0] if matched else "해석 불가"
-    return round(index), level, used, total, len(tokens)
+    return round(index), level, used, total, len(word_tokens)
 
+# Streamlit UI 구성
 st.title("📘 온독지수 자동 분석기")
 vocab_dict = load_vocab()
 grade_ranges = load_grade_ranges()
@@ -112,3 +117,4 @@ if trigger:
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
+
