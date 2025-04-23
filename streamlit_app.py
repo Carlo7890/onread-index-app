@@ -46,7 +46,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
         for base, level in vocab_dict.items():
-            if base in token:
+            if base in token or token in base:
                 if token not in seen:
                     seen.add(token)
                     used.append((token, level))
@@ -95,7 +95,7 @@ if trigger:
             st.success(f"✅ 온독지수: {score}점 ({level})")
             st.caption(f"총 단어 수: {total_words}, 사고도구어 수: {total_count}")
             if total_count < 3:
-                st.info("사고도구어가 적어 결과는 참고용입니다.")
+                st.info("문장이 짧거나 사고도구어가 적어 분석 결과의 신뢰도가 낮을 수 있습니다. 온독지수 결과는 참고용으로 활용해주세요.")
             if score > 500:
                 st.info("💡 고3 수준 이상입니다. 매우 높은 수준의 사고도구어를 사용하였습니다.")
             if used_words:
