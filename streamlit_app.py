@@ -57,11 +57,14 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
         for base, level in vocab_dict.items():
-            if base in token and token not in seen:
-                seen.add(token)
-                used.append((token, level))
-                total += 1
-                weighted += level
+            if (
+                base in token and len(base) >= 2 and len(token) - len(base) <= 5
+            ):
+                if token not in seen:
+                    seen.add(token)
+                    used.append((token, level))
+                    total += 1
+                    weighted += level
                 break
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
@@ -114,4 +117,3 @@ if trigger:
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
-
