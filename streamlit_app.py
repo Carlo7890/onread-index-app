@@ -65,7 +65,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     counted_tokens = set()
     for token in tokens:
         for vocab_word in vocab_dict:
-            if vocab_word in token and token not in counted_tokens:
+            if (token == vocab_word or vocab_word in token) and token not in counted_tokens:
                 level = vocab_dict[vocab_word]
                 token_counts[level] = token_counts.get(level, 0) + 1
                 weighted_sum += level
@@ -142,3 +142,4 @@ if trigger:
                     st.markdown(f"- **{word}**: {lvl}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
+
