@@ -57,17 +57,28 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
         for base, level in vocab_dict.items():
+            candidate = token
+            if token.endswith("하"):
+                candidate = token[:-1]
+            elif token.endswith("하다"):
+                candidate = token[:-2]
+            elif token.endswith("적인"):
+                candidate = token[:-2]
+            elif token.endswith("성"):
+                candidate = token[:-1]
+
+            # 정확히 일치하거나 token 내에 base가 포함되는 경우
             if (
-                base in token and
-                len(base) >= 2 and
-                abs(len(token) - len(base)) <= 5
-            ):
-                if token not in seen:
-                    seen.add(token)
-                    used.append((token, level))
+                base == candidate or
+                base in token
+            ) and len(base) >= 2:
+                if base not in seen:
+                    seen.add(base)
+                    used.append((base, level))
                     total += 1
                     weighted += level
                 break
+
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
     cttr = min(len(seen) / (2 * total)**0.5, 1.0)
@@ -119,4 +130,3 @@ if trigger:
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
-
