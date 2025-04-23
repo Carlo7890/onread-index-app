@@ -20,11 +20,6 @@ def load_vocab():
         for word in df["단어족"]:
             base_word = str(word).strip()
             word_dict[base_word] = int(level[0])
-            if base_word.endswith("적"):
-                word_dict[base_word + "이다"] = int(level[0])
-                word_dict[base_word + "으로"] = int(level[0])
-                word_dict[base_word + "인"] = int(level[0])
-                word_dict[base_word + "임"] = int(level[0])
     return word_dict
 
 @st.cache_data
@@ -69,14 +64,16 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     seen_words = set()
     counted_tokens = set()
     for token in tokens:
-        if token in vocab_dict and token not in counted_tokens:
-            level = vocab_dict[token]
-            token_counts[level] = token_counts.get(level, 0) + 1
-            weighted_sum += level
-            total += 1
-            used_words.append((token, level))
-            seen_words.add(token)
-            counted_tokens.add(token)
+        for vocab_word in vocab_dict:
+            if vocab_word in token and token not in counted_tokens:
+                level = vocab_dict[vocab_word]
+                token_counts[level] = token_counts.get(level, 0) + 1
+                weighted_sum += level
+                total += 1
+                used_words.append((token, level))
+                seen_words.add(token)
+                counted_tokens.add(token)
+                break
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
     unique = len(seen_words)
