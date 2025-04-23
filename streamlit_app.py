@@ -20,9 +20,14 @@ def load_vocab():
 @st.cache_data
 def load_grade_ranges():
     df = pd.read_excel("온독지수범위.xlsx")
-    return [(int(r[0]), int(r[1]), r[2]) for r in df[["온독지수 범위", "대상 학년"]].dropna().assign(
-        **df["온독지수 범위"].str.split("~", expand=True).astype(int).rename(columns={0: 0, 1: 1})
-    ).itertuples(index=False)]
+    ranges = []
+    for _, row in df.iterrows():
+        try:
+            start, end = map(int, str(row["온독지수 범위"]).split("~"))
+            ranges.append((start, end, row["대상 학년"]))
+        except:
+            continue
+    return ranges
 
 def call_vision_api(image_bytes):
     api_key = st.secrets["vision_api_key"]
@@ -99,5 +104,3 @@ if trigger:
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
-
-
