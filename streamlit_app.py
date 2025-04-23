@@ -52,22 +52,26 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
                 seen_words.add(token)
 
     if total == 0:
-        return 0, "사고도구어가 감지되지 않았습니다.", []
+        return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
 
     unique = len(seen_words)
     cttr = unique / (2 * total) ** 0.5
-    cttr = min(cttr, 1.0)  # ✅ 최대값 제한 (논문 기준)
+    cttr = min(cttr, 1.0)
 
     norm_weighted = weighted_sum / (4 * total)
-    index = ((0.7 * cttr) + (0.3 * norm_weighted)) * 500 + 100
+    total_words = len(re.findall(r"[\w가-힣]+", text))
+    density = total / total_words if total_words > 0 else 0
+    index = ((0.7 * cttr + 0.3 * norm_weighted) * density) * 500 + 100
 
-    level = "해석 불가"
-    for start, end, grade in grade_ranges:
-        if start <= index < end:
-            level = grade
-            break
+    matched_levels = [grade for start, end, grade in grade_ranges if start <= index < end]
+    if not matched_levels:
+        level = "해석 불가"
+    elif len(matched_levels) == 1:
+        level = matched_levels[0]
+    else:
+        level = f"{matched_levels[0]}~{matched_levels[-1]}"
 
-    return round(index), level, used_words
+    return round(index), level, used_words, total, total_words
 
 st.title("📘 온독지수 자동 분석기")
 
@@ -84,16 +88,19 @@ elif input_method == "이미지 업로드":
     if uploaded_file:
         image = Image.open(uploaded_file)
         st.image(image, caption="업로드한 이미지", use_column_width=True)
-        text = pytesseract.image_to_string(image, lang="kor")  # 한글 OCR
+        text = pytesseract.image_to_string(image, lang="kor")
         text = text.strip()
         st.text_area("📝 인식된 한글 텍스트:", value=text, height=150)
 
 if text:
-    score, level, used_words = calculate_onread_index(text, vocab_dict, grade_ranges)
-    if score == 0:
+    score, level, used_words, total_count, total_words = calculate_onread_index(text, vocab_dict, grade_ranges)
+    if total_count < 5:
+        st.warning("⚠️ 문장이 너무 짧아 온독지수 결과를 신뢰하기 어렵습니다. 사고도구어가 5개 이상 사용된 문장을 입력해주세요.")
+    elif score == 0:
         st.warning(level)
     else:
         st.success(f"✅ 온독지수: {score}점 ({level})")
+        st.caption(f"(총 단어 수: {total_words} / 사고도구어 수: {total_count})")
         if score > 500:
             st.info("💡 온독지수가 고3 수준(500점)을 초과하였습니다. 매우 높은 수준의 사고도구어를 활용하고 있습니다.")
         if used_words:
