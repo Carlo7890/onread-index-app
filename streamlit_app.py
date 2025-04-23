@@ -56,7 +56,7 @@ def call_vision_api(image_bytes):
 
 def calculate_onread_index(text, vocab_dict, grade_ranges):
     analyzed = kiwi.analyze(text)
-    tokens = [token.lemma for token in analyzed[0][0] if token.tag in ('NNG', 'NNP', 'VV', 'VA', 'MAG', 'MM')]
+    tokens = [token.form for token in analyzed[0][0] if token.tag in ('NNG', 'NNP', 'VV', 'VA', 'MAG', 'MM')]
     token_counts = {}
     total = 0
     weighted_sum = 0
@@ -142,4 +142,5 @@ if trigger:
                     st.markdown(f"- **{word}**: {lvl}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
+
 
