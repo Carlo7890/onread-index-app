@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
-from PIL import Image
+from PIL import Image, ImageOps, ImageFilter
 import pytesseract
 from kiwipiepy import Kiwi
 
@@ -30,8 +30,14 @@ def load_grade_ranges():
         ranges.append((start, end, row["대상 학년"]))
     return ranges
 
+def preprocess_image(img):
+    img = ImageOps.grayscale(img)
+    img = img.filter(ImageFilter.MedianFilter())
+    img = ImageOps.invert(img)
+    img = ImageOps.autocontrast(img)
+    return img
+
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    # 형태소 분석 및 어근 추출
     analyzed = kiwi.analyze(text)
     tokens = [token.form for token in analyzed[0][0] if token.tag in ('NNG', 'NNP', 'VV', 'VA', 'MAG', 'MM')]
 
@@ -62,7 +68,6 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     total_words = len(re.findall(r"[\w가-힣]+", text))
     density = total / total_words if total_words > 0 else 0
 
-    # 완충된 밀도 보정 적용
     density_factor = 0.5 + 0.5 * density
     index = ((0.7 * cttr + 0.3 * norm_weighted) * 500 + 100) * density_factor
 
@@ -83,19 +88,28 @@ grade_ranges = load_grade_ranges()
 
 input_method = st.radio("입력 방법을 선택하세요:", ("문장 직접 입력", "이미지 업로드"))
 text = ""
+trigger = False
 
 if input_method == "문장 직접 입력":
     text = st.text_area("분석할 문장을 입력하세요")
+    if st.button("🔍 분석하기"):
+        trigger = True
 elif input_method == "이미지 업로드":
     uploaded_file = st.file_uploader("문장이 담긴 이미지를 업로드하세요", type=["png", "jpg", "jpeg"])
+    ocr_text = ""
     if uploaded_file:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="업로드한 이미지", use_column_width=True)
-        text = pytesseract.image_to_string(image, lang="kor")
-        text = text.strip()
-        st.text_area("📝 인식된 한글 텍스트:", value=text, height=150)
+        try:
+            image = Image.open(uploaded_file)
+            st.image(image, caption="업로드한 이미지", use_container_width=True)
+            processed_image = preprocess_image(image)
+            ocr_text = pytesseract.image_to_string(processed_image, lang="kor").strip()
+        except Exception as e:
+            st.error(f"이미지를 처리하는 도중 오류가 발생했습니다: {e}")
+    text = st.text_area("📝 인식된 한글 텍스트 (수정 가능):", value=ocr_text, height=150)
+    if st.button("🔍 분석하기"):
+        trigger = True
 
-if text:
+if trigger and text:
     score, level, used_words, total_count, total_words = calculate_onread_index(text, vocab_dict, grade_ranges)
     if score == 0:
         st.warning(level)
