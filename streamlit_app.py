@@ -56,6 +56,8 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
 
     unique = len(seen_words)
     cttr = unique / (2 * total) ** 0.5
+    cttr = min(cttr, 1.0)  # ✅ 최대값 제한 (논문 기준)
+
     norm_weighted = weighted_sum / (4 * total)
     index = ((0.7 * cttr) + (0.3 * norm_weighted)) * 500 + 100
 
@@ -98,4 +100,3 @@ if text:
             st.markdown("### 사용된 사고도구어 목록")
             for word, lvl in used_words:
                 st.markdown(f"- **{word}**: {lvl}등급")
-
