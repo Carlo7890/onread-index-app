@@ -5,7 +5,7 @@ import base64
 import requests
 from PIL import Image
 
-# 사고도구어 불러오기
+# 사고도구어 사전 불러오기
 @st.cache_data
 def load_vocab():
     df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
@@ -24,7 +24,7 @@ def load_vocab():
                     vocab_dict[base] = level
     return vocab_dict
 
-# 온독지수 범위 로딩
+# 온독지수 범위 불러오기
 @st.cache_data
 def load_grade_ranges():
     df = pd.read_csv("온독지수범위.csv", encoding="utf-8-sig")
@@ -37,26 +37,29 @@ def load_grade_ranges():
             continue
     return ranges
 
-# Google Vision API OCR
+# Vision API로 OCR 텍스트 추출
 def call_vision_api(image_bytes):
     api_key = st.secrets["vision_api_key"]
     url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
     response = requests.post(url, json={
-        "requests": [{"image": {"content": image_base64}, "features": [{"type": "TEXT_DETECTION"}]}]
+        "requests": [{
+            "image": {"content": image_base64},
+            "features": [{"type": "TEXT_DETECTION"}]
+        }]
     })
     try:
         return response.json()["responses"][0]["fullTextAnnotation"]["text"]
     except:
         return ""
 
-# 온독지수 계산 (문장 내 직접 매칭 방식)
+# 온독지수 계산 로직 (부분 포함 허용)
 def calculate_onread_index(text, vocab_dict, grade_ranges):
     seen, used, total, weighted = set(), [], 0, 0
     word_tokens = re.findall(r"[\w가-힣]+", text)
 
     for vocab_word, level in vocab_dict.items():
-        if re.search(rf"\b{re.escape(vocab_word)}\b", text):
+        if vocab_word in text:
             if vocab_word not in seen:
                 seen.add(vocab_word)
                 used.append((vocab_word, level))
@@ -75,7 +78,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     level = "~".join(matched) if len(matched) > 1 else matched[0] if matched else "해석 불가"
     return round(index), level, used, total, len(word_tokens)
 
-# Streamlit UI 구성
+# UI 구성
 st.title("📘 온독지수 자동 분석기")
 vocab_dict = load_vocab()
 grade_ranges = load_grade_ranges()
