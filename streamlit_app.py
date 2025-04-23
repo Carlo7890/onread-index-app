@@ -53,14 +53,14 @@ def call_vision_api(image_bytes):
         return ""
 
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    # 형태소 분석 결과의 단어 형태(form) 사용
     tokens = [t.form for t in kiwi.analyze(text)[0][0] if t.tag.startswith("N") or t.tag.startswith("V")]
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
         for base, level in vocab_dict.items():
             if (
-                (base in token or token in base) and
-                len(base) >= 2 and abs(len(token) - len(base)) <= 5
+                base in token and
+                len(base) >= 2 and
+                abs(len(token) - len(base)) <= 5
             ):
                 if token not in seen:
                     seen.add(token)
@@ -119,3 +119,4 @@ if trigger:
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
+
