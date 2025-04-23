@@ -1,9 +1,11 @@
-
 import streamlit as st
 import pandas as pd
 import re
 from PIL import Image
 import pytesseract
+
+# pytesseract 한글 인식 설정 (이미지에서 한글 인식)
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'  # 서버 환경에 맞게 경로 조정 필요
 
 @st.cache_data
 def load_vocab():
@@ -29,6 +31,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     token_counts = {}
     total = 0
     weighted_sum = 0
+    used_words = []
 
     for token in tokens:
         if token in vocab_dict:
@@ -36,9 +39,10 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
             token_counts[level] = token_counts.get(level, 0) + 1
             weighted_sum += level
             total += 1
+            used_words.append((token, level))
 
     if total == 0:
-        return 0, "사고도구어가 감지되지 않았습니다."
+        return 0, "사고도구어가 감지되지 않았습니다.", []
 
     unique = len(set([t for t in tokens if t in vocab_dict]))
     cttr = unique / (2 * total) ** 0.5
@@ -51,7 +55,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
             level = grade
             break
 
-    return round(index), level
+    return round(index), level, used_words
 
 st.title("📘 온독지수 자동 분석기")
 
@@ -68,12 +72,17 @@ elif input_method == "이미지 업로드":
     if uploaded_file:
         image = Image.open(uploaded_file)
         st.image(image, caption="업로드한 이미지", use_column_width=True)
-        text = pytesseract.image_to_string(image, lang="kor")
-        st.write("📝 인식된 텍스트:", text)
+        text = pytesseract.image_to_string(image, lang="kor")  # 한글 OCR
+        text = text.strip()
+        st.text_area("📝 인식된 한글 텍스트:", value=text, height=150)
 
 if text:
-    score, level = calculate_onread_index(text, vocab_dict, grade_ranges)
+    score, level, used_words = calculate_onread_index(text, vocab_dict, grade_ranges)
     if score == 0:
         st.warning(level)
     else:
         st.success(f"✅ 온독지수: {score}점 ({level})")
+        if used_words:
+            st.markdown("### 사용된 사고도구어 목록")
+            for word, lvl in used_words:
+                st.markdown(f"- **{word}**: {lvl}등급")
