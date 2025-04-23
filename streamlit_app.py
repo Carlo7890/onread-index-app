@@ -46,7 +46,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
         for base, level in vocab_dict.items():
-            if base in token or token in base:
+            if (base in token or token in base or token.startswith(base) or base.startswith(token)):
                 if token not in seen:
                     seen.add(token)
                     used.append((token, level))
