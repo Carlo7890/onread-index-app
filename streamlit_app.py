@@ -1,21 +1,20 @@
+
 import streamlit as st
 import pandas as pd
 import re
 from PIL import Image
 import pytesseract
 
-# 1. 사고도구어 등급별 불러오기
 @st.cache_data
 def load_vocab():
-    vocab_file = "사고도구어(1~4등급).xlsx"
+    vocab_file = "사고도구어(1~4등급)(가공).xlsx"
     sheets = pd.read_excel(vocab_file, sheet_name=None)
     word_dict = {}
     for level, df in sheets.items():
         for word in df["단어족"]:
-            word_dict[str(word).strip()] = int(level[0])  # 등급
+            word_dict[str(word).strip()] = int(level[0])
     return word_dict
 
-# 2. 온독지수 기준표 불러오기
 @st.cache_data
 def load_grade_ranges():
     df = pd.read_excel("온독지수범위.xlsx")
@@ -25,7 +24,6 @@ def load_grade_ranges():
         ranges.append((start, end, row["대상 학년"]))
     return ranges
 
-# 3. 온독지수 계산 함수
 def calculate_onread_index(text, vocab_dict, grade_ranges):
     tokens = re.findall(r"[\w가-힣]+", text)
     token_counts = {}
@@ -55,7 +53,6 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
 
     return round(index), level
 
-# Streamlit UI 시작
 st.title("📘 온독지수 자동 분석기")
 
 vocab_dict = load_vocab()
