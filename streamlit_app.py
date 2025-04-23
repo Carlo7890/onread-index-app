@@ -10,11 +10,7 @@ kiwi = Kiwi()
 
 @st.cache_data
 def load_vocab():
-    try:
-        df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="cp949")
-
+    df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
     vocab_dict = {}
     column_level_map = {
         "1등급 단어족": 1,
@@ -25,7 +21,9 @@ def load_vocab():
     for column, level in column_level_map.items():
         if column in df.columns:
             for word in df[column].dropna():
-                vocab_dict[str(word).strip()] = level
+                base = str(word).strip()
+                if len(base) >= 2:
+                    vocab_dict[base] = level
     return vocab_dict
 
 @st.cache_data
@@ -52,33 +50,28 @@ def call_vision_api(image_bytes):
     except:
         return ""
 
+def detect_base_word(token, vocab_dict):
+    suffixes = ["하", "하다", "적인", "적", "성", "화", "성이다", "성적"]
+    for base, level in vocab_dict.items():
+        if base in token and len(base) >= 2:
+            return base, level
+        for suffix in suffixes:
+            if token == base + suffix:
+                return base, level
+    return None
+
 def calculate_onread_index(text, vocab_dict, grade_ranges):
     tokens = [t.form for t in kiwi.analyze(text)[0][0] if t.tag.startswith("N") or t.tag.startswith("V")]
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
-        for base, level in vocab_dict.items():
-            candidate = token
-            if token.endswith("하"):
-                candidate = token[:-1]
-            elif token.endswith("하다"):
-                candidate = token[:-2]
-            elif token.endswith("적인"):
-                candidate = token[:-2]
-            elif token.endswith("성"):
-                candidate = token[:-1]
-
-            # 정확히 일치하거나 token 내에 base가 포함되는 경우
-            if (
-                base == candidate or
-                base in token
-            ) and len(base) >= 2:
-                if base not in seen:
-                    seen.add(base)
-                    used.append((base, level))
-                    total += 1
-                    weighted += level
-                break
-
+        result = detect_base_word(token, vocab_dict)
+        if result:
+            base, level = result
+            if base not in seen:
+                seen.add(base)
+                used.append((base, level))
+                total += 1
+                weighted += level
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
     cttr = min(len(seen) / (2 * total)**0.5, 1.0)
