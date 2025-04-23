@@ -1,145 +1,103 @@
 import streamlit as st
 import pandas as pd
 import re
-from PIL import Image
 from kiwipiepy import Kiwi
 import base64
 import requests
-import os
-import datetime
+from PIL import Image
 
-# 형태소 분석기 초기화
 kiwi = Kiwi()
 
 @st.cache_data
 def load_vocab():
-    vocab_file = "사고도구어(1~4등급)(가공).xlsx"
-    sheets = pd.read_excel(vocab_file, sheet_name=None)
+    df_all = pd.read_excel("사고도구어(1~4등급)(가공).xlsx", sheet_name=None)
     word_dict = {}
-    for level, df in sheets.items():
+    for level, df in df_all.items():
         for word in df["단어족"]:
-            base_word = str(word).strip()
-            word_dict[base_word] = int(level[0])
+            word_dict[str(word).strip()] = int(level[0])
     return word_dict
 
 @st.cache_data
 def load_grade_ranges():
     df = pd.read_excel("온독지수범위.xlsx")
-    ranges = []
-    for _, row in df.iterrows():
-        start, end = map(int, row["온독지수 범위"].split("~"))
-        ranges.append((start, end, row["대상 학년"]))
-    return ranges
+    return [(int(r[0]), int(r[1]), r[2]) for r in df[["온독지수 범위", "대상 학년"]].dropna().assign(
+        **df["온독지수 범위"].str.split("~", expand=True).astype(int).rename(columns={0: 0, 1: 1})
+    ).itertuples(index=False)]
 
 def call_vision_api(image_bytes):
     api_key = st.secrets["vision_api_key"]
     url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-    request_body = {
-        "requests": [
-            {
-                "image": {"content": image_base64},
-                "features": [{"type": "TEXT_DETECTION"}]
-            }
-        ]
-    }
-    response = requests.post(url, json=request_body)
-    if response.status_code == 200:
-        result = response.json()
-        try:
-            return result["responses"][0]["fullTextAnnotation"]["text"]
-        except:
-            return ""
-    else:
-        st.error("Google Vision API 요청 실패: " + response.text)
+    response = requests.post(url, json={
+        "requests": [{"image": {"content": image_base64}, "features": [{"type": "TEXT_DETECTION"}]}]
+    })
+    try:
+        return response.json()["responses"][0]["fullTextAnnotation"]["text"]
+    except:
         return ""
 
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    analyzed = kiwi.analyze(text)
-    tokens = [token.form for token in analyzed[0][0] if token.tag in ('NNG', 'NNP', 'VV', 'VA', 'MAG', 'MM')]
-    token_counts = {}
-    total = 0
-    weighted_sum = 0
-    used_words = []
-    seen_words = set()
-    counted_tokens = set()
+    tokens = [t.form for t in kiwi.analyze(text)[0][0] if t.tag.startswith("N") or t.tag.startswith("V")]
+    seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
-        for vocab_word in vocab_dict:
-            if (token == vocab_word or token.startswith(vocab_word)) and token not in counted_tokens:
-                level = vocab_dict[vocab_word]
-                token_counts[level] = token_counts.get(level, 0) + 1
-                weighted_sum += level
-                total += 1
-                used_words.append((token, level))
-                seen_words.add(token)
-                counted_tokens.add(token)
+        for base, level in vocab_dict.items():
+            if base in token:
+                if token not in seen:
+                    seen.add(token)
+                    used.append((token, level))
+                    total += 1
+                    weighted += level
                 break
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
-    unique = len(seen_words)
-    cttr = unique / (2 * total) ** 0.5
-    cttr = min(cttr, 1.0)
-    norm_weighted = weighted_sum / (4 * total)
-    total_words = len(re.findall(r"[\w가-힣]+", text))
-    density = total / total_words if total_words > 0 else 0
-    density_factor = 0.5 + 0.5 * density
-    index = ((0.7 * cttr + 0.3 * norm_weighted) * 500 + 100) * density_factor
-    matched_levels = [grade for start, end, grade in grade_ranges if start <= index < end]
-    if not matched_levels:
-        level = "해석 불가"
-    elif len(matched_levels) == 1:
-        level = matched_levels[0]
-    else:
-        level = f"{matched_levels[0]}~{matched_levels[-1]}"
-    return round(index), level, used_words, total, total_words
+    cttr = min(len(seen) / (2 * total)**0.5, 1.0)
+    norm_weight = weighted / (4 * total)
+    density = total / len(re.findall(r"[\w가-힣]+", text))
+    index = ((0.7 * cttr + 0.3 * norm_weight) * 500 + 100) * (0.5 + 0.5 * density)
+    matched = [g for s, e, g in grade_ranges if s <= index < e]
+    level = "~".join(matched) if len(matched) > 1 else matched[0] if matched else "해석 불가"
+    return round(index), level, used, total, len(tokens)
 
-# 🔽 Streamlit 인터페이스 구현
 st.title("📘 온독지수 자동 분석기")
-
 vocab_dict = load_vocab()
 grade_ranges = load_grade_ranges()
 
-input_method = st.radio("입력 방법을 선택하세요:", ("문장 직접 입력", "이미지 업로드"))
-text = ""
-trigger = False
+input_method = st.radio("입력 방법 선택", ("문장 입력", "이미지 업로드"))
+trigger, text = False, ""
 
-if input_method == "문장 직접 입력":
-    text = st.text_area("분석할 문장을 입력하세요", key="manual_text")
+if input_method == "문장 입력":
+    text = st.text_area("문장을 입력하세요", key="manual")
     if st.button("🔍 분석하기"):
         trigger = True
-elif input_method == "이미지 업로드":
-    uploaded_file = st.file_uploader("문장이 담긴 이미지를 업로드하세요", type=["png", "jpg", "jpeg"])
-    ocr_text = ""
-    if uploaded_file:
-        try:
-            image_bytes = uploaded_file.read()
-            image = Image.open(uploaded_file)
-            st.image(image, caption="업로드한 이미지", use_container_width=True)
-            ocr_text = call_vision_api(image_bytes).strip()
-            st.session_state["ocr_text"] = ocr_text
-        except Exception as e:
-            st.error(f"이미지를 처리하는 도중 오류가 발생했습니다: {e}")
-    text = st.text_area("📝 인식된 한글 텍스트 (수정 가능):", value=st.session_state.get("ocr_text", ""), key="ocr_text_area", height=150)
+else:
+    uploaded = st.file_uploader("이미지 업로드", type=["png", "jpg", "jpeg"])
+    if uploaded:
+        image_bytes = uploaded.read()
+        st.image(Image.open(uploaded), caption="업로드된 이미지", use_container_width=True)
+        ocr_result = call_vision_api(image_bytes).strip()
+        st.session_state["ocr"] = ocr_result
+    text = st.text_area("📝 OCR 결과 (수정 가능)", value=st.session_state.get("ocr", ""), key="ocr_text")
     if st.button("🔍 분석하기"):
         trigger = True
 
 if trigger:
-    current_text = st.session_state.get("manual_text") if input_method == "문장 직접 입력" else st.session_state.get("ocr_text_area")
-    if current_text:
-        score, level, used_words, total_count, total_words = calculate_onread_index(current_text, vocab_dict, grade_ranges)
+    input_text = st.session_state.get("manual") if input_method == "문장 입력" else st.session_state.get("ocr_text")
+    if input_text:
+        score, level, used_words, total_count, total_words = calculate_onread_index(input_text, vocab_dict, grade_ranges)
         if score == 0:
             st.warning(level)
         else:
             st.success(f"✅ 온독지수: {score}점 ({level})")
-            st.caption(f"(총 단어 수: {total_words} / 사고도구어 수: {total_count})")
+            st.caption(f"총 단어 수: {total_words}, 사고도구어 수: {total_count}")
             if total_count < 3:
-                st.info("ℹ️ 문장이 짧아 사고도구어 수가 적지만, 결과는 참고용으로 제공됩니다.")
+                st.info("사고도구어가 적어 결과는 참고용입니다.")
             if score > 500:
-                st.info("💡 온독지수가 고3 수준(500점)을 초과하였습니다. 매우 높은 수준의 사고도구어를 활용하고 있습니다.")
+                st.info("💡 고3 수준 이상입니다. 매우 높은 수준의 사고도구어를 사용하였습니다.")
             if used_words:
-                st.markdown("### 사용된 사고도구어 목록")
-                for word, lvl in used_words:
-                    st.markdown(f"- **{word}**: {lvl}등급")
+                st.markdown("### 사용된 사고도구어")
+                for w, l in used_words:
+                    st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 분석 버튼을 눌러주세요.")
+
 
