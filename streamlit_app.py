@@ -17,9 +17,13 @@ def load_vocab():
     sheets = pd.read_excel(vocab_file, sheet_name=None)
     word_dict = {}
     for level, df in sheets.items():
-        for word in df["단어족"]:
-            word_dict[str(word).strip()] = int(level[0])
-    return word_dict
+    for _, row in df.iterrows():
+        word_family = str(row["단어족"]).strip()
+        if pd.notna(word_family):
+            word_dict[word_family] = int(level[0])
+        if "단어" in row and pd.notna(row["단어"]):
+            for word in str(row["단어"]).split(","):
+                word_dict[word.strip()] = int(level[0])
 
 @st.cache_data
 def load_grade_ranges():
