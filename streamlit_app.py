@@ -12,15 +12,15 @@ kiwi = Kiwi()
 def load_vocab():
     df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
     vocab_dict = {}
-    column_level_map = {
+    level_map = {
         "1등급 단어족": 1,
         "2등급 단어족": 2,
         "3등급 단어족": 3,
         "4등급 단어족": 4
     }
-    for column, level in column_level_map.items():
-        if column in df.columns:
-            for word in df[column].dropna():
+    for col, level in level_map.items():
+        if col in df.columns:
+            for word in df[col].dropna():
                 base = str(word).strip()
                 if len(base) >= 2:
                     vocab_dict[base] = level
@@ -50,26 +50,15 @@ def call_vision_api(image_bytes):
     except:
         return ""
 
-def detect_base_word(token, vocab_dict):
-    suffixes = ["하", "하다", "적인", "적", "성", "화", "성이다", "성적"]
-    for base, level in vocab_dict.items():
-        if base in token and len(base) >= 2:
-            return base, level
-        for suffix in suffixes:
-            if token == base + suffix:
-                return base, level
-    return None
-
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    tokens = [t.form for t in kiwi.analyze(text)[0][0] if t.tag.startswith("N") or t.tag.startswith("V")]
+    tokens = [token.form for token, _, _ in kiwi.analyze(text)[0][0]]
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
-        result = detect_base_word(token, vocab_dict)
-        if result:
-            base, level = result
-            if base not in seen:
-                seen.add(base)
-                used.append((base, level))
+        if token in vocab_dict:
+            level = vocab_dict[token]
+            if token not in seen:
+                seen.add(token)
+                used.append((token, level))
                 total += 1
                 weighted += level
     if total == 0:
