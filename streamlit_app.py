@@ -46,7 +46,7 @@ def call_vision_api(image_bytes):
 
 # 온독지수 계산
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    tokens = [t.form for t, _, _ in kiwi.analyze(text)[0][0]]
+    tokens = [token.form for token in kiwi.analyze(text)[0][0]]
 
     seen, used, total, weighted = set(), [], 0, 0
     for token in tokens:
@@ -67,12 +67,12 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     index = ((0.7 * cttr + 0.3 * norm_weight) * 500 + 100) * (0.5 + 0.5 * density)
 
     if len(word_tokens) < 5:
-        index *= 0.6  # 짧은 문장 보정
+        index *= 0.6
 
     matched = [g for s, e, g in grade_ranges if s <= index < e]
     level = "~".join(matched) if len(matched) > 1 else matched[0] if matched else "해석 불가"
     return round(index), level, used, total, len(word_tokens)
-
+    
 # Streamlit 앱 시작
 st.title("📘 온독지수 자동 분석기")
 
