@@ -3,10 +3,10 @@ import pandas as pd
 import re
 from PIL import Image
 import pytesseract
-from konlpy.tag import Okt
+from kiwipiepy import Kiwi
 
 # 형태소 분석기 초기화
-okt = Okt()
+kiwi = Kiwi()
 
 # pytesseract 한글 인식 설정 (이미지에서 한글 인식)
 pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'  # 서버 환경에 맞게 경로 조정 필요
@@ -31,9 +31,9 @@ def load_grade_ranges():
     return ranges
 
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    # 형태소 분석: 명사, 형용사, 동사, 관형사 등만 추출
-    morphs = okt.pos(text, stem=True)
-    tokens = [word for word, tag in morphs if tag in ['Noun', 'Verb', 'Adjective', 'Determiner']]
+    # 형태소 분석 및 어근 추출
+    analyzed = kiwi.analyze(text)
+    tokens = [token.form for token in analyzed[0][0] if token.tag in ('NNG', 'NNP', 'VV', 'VA', 'MAG', 'MM')]
 
     token_counts = {}
     total = 0
@@ -98,3 +98,4 @@ if text:
             st.markdown("### 사용된 사고도구어 목록")
             for word, lvl in used_words:
                 st.markdown(f"- **{word}**: {lvl}등급")
+
