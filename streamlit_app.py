@@ -53,16 +53,18 @@ def call_vision_api(image_bytes):
         return ""
 
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    tokens = [t.form for t in kiwi.analyze(text)[0][0] if t.tag.startswith("N") or t.tag.startswith("V")]
+    lemmas = [t.lemma for t in kiwi.analyze(text)[0][0] if t.tag.startswith("N") or t.tag.startswith("V")]
     seen, used, total, weighted = set(), [], 0, 0
-    for token in tokens:
+    for lemma in lemmas:
         for base, level in vocab_dict.items():
             if (
-                base in token and len(base) >= 2 and len(token) - len(base) <= 5
+                (base in lemma or lemma in base)
+                and len(base) >= 2
+                and abs(len(lemma) - len(base)) <= 5
             ):
-                if token not in seen:
-                    seen.add(token)
-                    used.append((token, level))
+                if lemma not in seen:
+                    seen.add(lemma)
+                    used.append((lemma, level))
                     total += 1
                     weighted += level
                 break
@@ -74,7 +76,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
     index = ((0.7 * cttr + 0.3 * norm_weight) * 500 + 100) * (0.5 + 0.5 * density)
     matched = [g for s, e, g in grade_ranges if s <= index < e]
     level = "~".join(matched) if len(matched) > 1 else matched[0] if matched else "해석 불가"
-    return round(index), level, used, total, len(tokens)
+    return round(index), level, used, total, len(lemmas)
 
 st.title("📘 온독지수 자동 분석기")
 vocab_dict = load_vocab()
