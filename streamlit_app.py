@@ -1,15 +1,14 @@
 import streamlit as st
 import pandas as pd
 import re
-from PIL import Image, ImageOps, ImageFilter
-import pytesseract
+from PIL import Image
 from kiwipiepy import Kiwi
+import base64
+import requests
+import os
 
 # 형태소 분석기 초기화
 kiwi = Kiwi()
-
-# pytesseract 한글 인식 설정 (이미지에서 한글 인식)
-pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'  # 서버 환경에 맞게 경로 조정 필요
 
 @st.cache_data
 def load_vocab():
@@ -30,12 +29,30 @@ def load_grade_ranges():
         ranges.append((start, end, row["대상 학년"]))
     return ranges
 
-def preprocess_image(img):
-    img = ImageOps.grayscale(img)
-    img = img.filter(ImageFilter.MedianFilter())
-    img = ImageOps.invert(img)
-    img = ImageOps.autocontrast(img)
-    return img
+def call_vision_api(image_bytes):
+    api_key = st.secrets["vision_api_key"]
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
+
+    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+    request_body = {
+        "requests": [
+            {
+                "image": {"content": image_base64},
+                "features": [{"type": "TEXT_DETECTION"}]
+            }
+        ]
+    }
+
+    response = requests.post(url, json=request_body)
+    if response.status_code == 200:
+        result = response.json()
+        try:
+            return result["responses"][0]["fullTextAnnotation"]["text"]
+        except:
+            return ""
+    else:
+        st.error("Google Vision API 요청 실패: " + response.text)
+        return ""
 
 def calculate_onread_index(text, vocab_dict, grade_ranges):
     analyzed = kiwi.analyze(text)
@@ -99,10 +116,10 @@ elif input_method == "이미지 업로드":
     ocr_text = ""
     if uploaded_file:
         try:
+            image_bytes = uploaded_file.read()
             image = Image.open(uploaded_file)
             st.image(image, caption="업로드한 이미지", use_container_width=True)
-            processed_image = preprocess_image(image)
-            ocr_text = pytesseract.image_to_string(processed_image, lang="kor").strip()
+            ocr_text = call_vision_api(image_bytes).strip()
         except Exception as e:
             st.error(f"이미지를 처리하는 도중 오류가 발생했습니다: {e}")
     text = st.text_area("📝 인식된 한글 텍스트 (수정 가능):", value=ocr_text, height=150)
