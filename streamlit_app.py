@@ -6,6 +6,7 @@ from kiwipiepy import Kiwi
 import base64
 import requests
 import os
+import datetime
 
 # 형태소 분석기 초기화
 kiwi = Kiwi()
@@ -98,6 +99,19 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
 
     return round(index), level, used_words, total, total_words
 
+# ✅ API 호출 횟수 제한 로직 추가
+if "daily_calls" not in st.session_state:
+    st.session_state["daily_calls"] = 0
+    st.session_state["last_reset"] = datetime.date.today()
+
+if st.session_state["last_reset"] != datetime.date.today():
+    st.session_state["daily_calls"] = 0
+    st.session_state["last_reset"] = datetime.date.today()
+
+if st.session_state["daily_calls"] >= 20:
+    st.error("오늘의 할당량을 모두 이용하였습니다. 내일 다시 사용해주세요.")
+    st.stop()
+
 st.title("📘 온독지수 자동 분석기")
 
 vocab_dict = load_vocab()
@@ -120,6 +134,7 @@ elif input_method == "이미지 업로드":
             image = Image.open(uploaded_file)
             st.image(image, caption="업로드한 이미지", use_container_width=True)
             ocr_text = call_vision_api(image_bytes).strip()
+            st.session_state["daily_calls"] += 1  # API 호출 시 카운트 증가
         except Exception as e:
             st.error(f"이미지를 처리하는 도중 오류가 발생했습니다: {e}")
     text = st.text_area("📝 인식된 한글 텍스트 (수정 가능):", value=ocr_text, height=150)
@@ -141,3 +156,4 @@ if trigger and text:
             st.markdown("### 사용된 사고도구어 목록")
             for word, lvl in used_words:
                 st.markdown(f"- **{word}**: {lvl}등급")
+
