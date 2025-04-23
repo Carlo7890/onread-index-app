@@ -57,7 +57,7 @@ def call_vision_api(image_bytes):
 
 def calculate_onread_index(text, vocab_dict, grade_ranges):
     analyzed = kiwi.analyze(text)
-    tokens = [token.form for token in analyzed[0][0] if token.tag in ('NNG', 'NNP', 'VV', 'VA', 'MAG', 'MM')]
+    tokens = [token.lemma for token in analyzed[0][0] if token.tag in ('NNG', 'NNP', 'VV', 'VA', 'MAG', 'MM')]
 
     token_counts = {}
     total = 0
