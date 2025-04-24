@@ -1,0 +1,4 @@
+git rm -r --cached .streamlit
+echo ".streamlit/" >> .gitignore
+git commit -m "Remove secrets folder from Git tracking"
+git push
