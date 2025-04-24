@@ -9,49 +9,28 @@ from kiwipiepy import Kiwi
 kiwi = Kiwi()
 
 # ✅ 중의어 정의
-ambiguous_words_info = {
-    "기술": {
-        2: "사물을 잘 다룰 수 있는 방법이나 능력 (기능/방법)",
-        3: "열거하거나 기록하여 서술함 (기록/서술)"
-    },
-    "유형": {
-        2: "성질이나 특징 따위가 공통적인 것끼리 묶은 하나의 틀",
-        3: "형상이나 형체가 있음"
-    },
-    "의지": {
-        2: "어떠한 일을 이루고자 하는 마음",
-        3: "다른 것에 몸이나 마음을 기대어 도움을 받음"
-    },
-    "지적": {
-        2: "꼭 집어서 가리킴 (지목/지시)",
-        3: "지식이나 지성에 관한 것"
-    }
+ambiguous_words = {
+    "기술": {"2": "사물을 잘 다룰 수 있는 방법이나 능력 (기능/방법)", "3": "열거하거나 기록하여 서술함 (기록/서술)"},
+    "유형": {"2": "공통적인 것끼리 묶은 하나의 틀", "3": "형체가 있음"},
+    "의지": {"2": "이루고자 하는 마음", "3": "기대거나 도움을 받음"},
+    "지적": {"2": "지목/지시", "3": "지식/지성 관련"}
 }
 
-# ✅ 사고도구어 불러오기
 @st.cache_data
 def load_vocab():
     df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
     vocab_dict = {}
     for col, level in zip(df.columns, range(1, 5)):
         for word in df[col].dropna():
-            vocab_dict[str(word).strip()] = level
+            if word not in ambiguous_words:
+                vocab_dict[str(word).strip()] = level
     return vocab_dict
 
-# ✅ 온독지수 범위 불러오기
 @st.cache_data
 def load_grade_ranges():
     df = pd.read_csv("온독지수범위.csv", encoding="utf-8-sig")
-    ranges = []
-    for _, row in df.iterrows():
-        try:
-            start, end = map(int, str(row["온독지수 범위"]).split("~"))
-            ranges.append((start, end, row["대상 학년"]))
-        except:
-            continue
-    return ranges
+    return [(int(row["온독지수 범위"].split("~")[0]), int(row["온독지수 범위"].split("~")[1]), row["대상 학년"]) for _, row in df.iterrows() if "~" in row["온독지수 범위"]]
 
-# ✅ Google Vision API OCR
 def call_vision_api(image_bytes):
     api_key = st.secrets["vision_api_key"]
     url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
@@ -64,32 +43,29 @@ def call_vision_api(image_bytes):
     except:
         return ""
 
-# ✅ 온독지수 계산
-def calculate_onread_index(text, vocab_dict, grade_ranges, manual_override={}):
+def calculate_onread_index(text, vocab_dict, grade_ranges, ambiguous_selection):
     try:
-        tokens = [token.form for token, _, _ in kiwi.analyze(text)[0][0]]
+        tokens = [t.form for t in kiwi.analyze(text)[0][0]]
     except Exception as e:
         return 0, f"형태소 분석 오류: {e}", [], 0, 0
 
     seen, used, total, weighted = set(), [], 0, 0
 
     for token in tokens:
-        token = token.strip()
-        if token in ambiguous_words_info:
-            level = manual_override.get(token)
-            if level:
-                seen.add(token)
-                used.append((token, level))
-                total += 1
-                weighted += level
-            continue
-        for vocab_word, level in vocab_dict.items():
-            if vocab_word in token and token not in seen:
-                seen.add(token)
-                used.append((vocab_word, level))
-                total += 1
-                weighted += level
-                break
+        if token in ambiguous_selection:
+            level = int(ambiguous_selection[token])
+            seen.add(token)
+            used.append((token, level))
+            total += 1
+            weighted += level
+        else:
+            for vocab_word, level in vocab_dict.items():
+                if vocab_word in token and token not in seen:
+                    seen.add(token)
+                    used.append((vocab_word, level))
+                    total += 1
+                    weighted += level
+                    break
 
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
@@ -133,16 +109,19 @@ else:
 
 if trigger:
     input_text = st.session_state.get("manual") if input_method == "문장 입력" else st.session_state.get("ocr_text")
-    manual_levels = {}
-    if input_text:
-        for word in ambiguous_words_info:
-            if word in input_text:
-                level = st.radio(f"🔎 '{word}'의 의미를 선택하세요:", options=[2, 3],
-                                 format_func=lambda x: f"{x}등급: {ambiguous_words_info[word][x]}",
-                                 key=f"choice_{word}")
-                manual_levels[word] = level
+    ambiguous_selection = {}
 
-        score, level, used_words, total_count, total_words = calculate_onread_index(input_text, vocab_dict, grade_ranges, manual_override=manual_levels)
+    if input_text:
+        for word in ambiguous_words:
+            if word in input_text:
+                selected = st.radio(
+                    f"‘{word}’의 의미를 선택하세요:",
+                    options=[(k, f"{k}등급: {v}") for k, v in ambiguous_words[word].items()],
+                    key=f"radio_{word}"
+                )
+                ambiguous_selection[word] = selected[0]
+
+        score, level, used_words, total_count, total_words = calculate_onread_index(input_text, vocab_dict, grade_ranges, ambiguous_selection)
 
         if score == 0:
             st.warning(level)
@@ -150,13 +129,12 @@ if trigger:
             st.success(f"✅ 온독지수: {score}점 ({level})")
             st.caption(f"총 단어 수: {total_words}, 사고도구어 수: {total_count}")
             if total_count < 3:
-                st.info("문장이 짧거나 사고도구어가 적어 분석 결과의 신뢰도가 낮을 수 있습니다. 참고용으로 활용해주세요.")
+                st.info("문장이 짧거나 사고도구어가 적어 분석 결과의 신뢰도가 낮을 수 있습니다.")
             if score > 500:
-                st.info("💡 고3 이상 수준입니다. 매우 높은 수준의 사고도구어 사용입니다.")
+                st.info("💡 고3 이상 수준입니다.")
             if used_words:
                 st.markdown("### 사용된 사고도구어")
                 for w, l in used_words:
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 '분석하기' 버튼을 눌러주세요.")
-
