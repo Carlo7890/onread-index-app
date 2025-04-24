@@ -8,53 +8,61 @@ from kiwipiepy import Kiwi
 
 kiwi = Kiwi()
 
-# ✅ 중의적 단어 정의
-ambiguous_words = ["기술", "유형", "의지", "지적"]
+# Gemini API 키 (secrets.toml에서 관리)
+GEMINI_API_KEY = st.secrets.get("gemini_api_key", "")
+
+# 중복 의미 처리 대상 단어
 ambiguous_meanings = {
     "기술": {"2": "기능/방법", "3": "기록/서술"},
-    "유형": {"2": "공통적인 틀", "3": "형체가 있는 것"},
-    "의지": {"2": "이루려는 마음", "3": "의지하다 (기대다)"},
-    "지적": {"2": "지시/지목", "3": "지식/지성"}
+    "유형": {"2": "공통적인 것끼리 묶은 틀", "3": "형체가 있는 것"},
+    "의지": {"2": "이루고자 하는 마음", "3": "의지하다 (기대다)"},
+    "지적": {"2": "지시/지목", "3": "지식이나 지성에 관한 것"}
 }
+ambiguous_words = list(ambiguous_meanings.keys())
 
-# ✅ Gemini API 호출 함수
+# Gemini API 호출 함수
 def classify_ambiguous_word(word, sentence):
-    API_KEY = st.secrets["gemini_api_key"]
+    if not GEMINI_API_KEY:
+        return None
+    meaning = ambiguous_meanings[word]
     prompt = f"""
     문장: "{sentence}"
     단어: "{word}"
 
     다음 중 어떤 의미로 쓰였는가?
 
-    - 2등급 의미: {ambiguous_meanings[word]['2']}
-    - 3등급 의미: {ambiguous_meanings[word]['3']}
+    - 2등급 의미: {meaning['2']}
+    - 3등급 의미: {meaning['3']}
 
-    문맥에 맞는 숫자 (2 또는 3)로만 정확히 답해주세요.
+    문맥에 맞는 등급을 숫자로만 정확하게 답해주세요. (2 또는 3)
     """
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
     headers = {"Content-Type": "application/json"}
-    body = {"contents": [{"parts": [{"text": prompt}]}]}
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
-        response = requests.post(f"{url}?key={API_KEY}", headers=headers, json=body)
-        answer = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return int(answer) if answer in ["2", "3"] else None
+        res = requests.post(f"{url}?key={GEMINI_API_KEY}", headers=headers, json=data)
+        result = res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        if "2" in result:
+            return 2
+        elif "3" in result:
+            return 3
     except:
         return None
 
-# ✅ 사고도구어 불러오기
+# 사고도구어 불러오기
 @st.cache_data
 def load_vocab():
     df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
-    vocab = {}
+    vocab_dict = {}
     for idx, level in enumerate([1, 2, 3, 4]):
-        col = df.columns[idx]
-        for word in df[col].dropna():
-            word = str(word).strip()
-            if word not in ambiguous_words:
-                vocab[word] = level
-    return vocab
+        words = df.iloc[:, idx].dropna().astype(str).str.strip()
+        for word in words:
+            if word in ambiguous_words:
+                continue  # 중복 단어는 Gemini에서 처리
+            vocab_dict[word] = level
+    return vocab_dict
 
-# ✅ 등급 범위 불러오기
+# 온독지수 범위 불러오기
 @st.cache_data
 def load_grade_ranges():
     df = pd.read_csv("온독지수범위.csv", encoding="utf-8-sig")
@@ -67,7 +75,7 @@ def load_grade_ranges():
             continue
     return ranges
 
-# ✅ OCR
+# OCR (Google Vision API)
 def call_vision_api(image_bytes):
     api_key = st.secrets["vision_api_key"]
     url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
@@ -80,16 +88,14 @@ def call_vision_api(image_bytes):
     except:
         return ""
 
-# ✅ 온독지수 계산
+# 온독지수 계산
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    tokens = [token.form for token in kiwi.analyze(text)[0][0]]
-    word_set = set(tokens + re.findall(r"[\w가-힣]+", text))
-
+    tokens = [t.form for t in kiwi.analyze(text)[0][0] if t.tag.startswith("N") or t.tag.startswith("V")]
     seen, used, total, weighted = set(), [], 0, 0
-    for word in word_set:
-        word = word.strip()
 
-        # 중의적 단어일 경우 Gemini API 호출
+    for token in tokens:
+        word = token.strip()
+        # 중복 단어는 Gemini로 판단
         if word in ambiguous_words:
             level = classify_ambiguous_word(word, text)
             if level:
@@ -98,15 +104,13 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
                 total += 1
                 weighted += level
             continue
-
-        # 일반 단어: 정확 또는 포함 체크
-        for vocab_word, level in vocab_dict.items():
-            if vocab_word == word or vocab_word in word:
-                if vocab_word not in seen:
-                    seen.add(vocab_word)
-                    used.append((vocab_word, level))
-                    total += 1
-                    weighted += level
+        # 일반 단어는 vocab_dict에서 부분 포함 처리
+        for vocab, level in vocab_dict.items():
+            if vocab in word and word not in seen:
+                seen.add(word)
+                used.append((vocab, level))
+                total += 1
+                weighted += level
                 break
 
     if total == 0:
@@ -114,14 +118,19 @@ def calculate_onread_index(text, vocab_dict, grade_ranges):
 
     cttr = min(len(seen) / (2 * total)**0.5, 1.0)
     norm_weight = weighted / (4 * total)
-    density = total / len(re.findall(r"[\w가-힣]+", text))
+    word_tokens = re.findall(r"[\w가-힣]+", text)
+    density = total / len(word_tokens)
     index = ((0.7 * cttr + 0.3 * norm_weight) * 500 + 100) * (0.5 + 0.5 * density)
+
+    if len(word_tokens) < 5:
+        index *= 0.6
+
     matched = [g for s, e, g in grade_ranges if s <= index < e]
     level = "~".join(matched) if matched else "해석 불가"
-    return round(index), level, used, total, len(tokens)
+    return round(index), level, used, total, len(word_tokens)
 
-# ✅ Streamlit UI
-st.title("📘 온독지수 분석기 (형태소 + Gemini 보조)")
+# 🔵 Streamlit 시작
+st.title("📘 온독지수 자동 분석기 (Gemini 보조 기반)")
 
 vocab_dict = load_vocab()
 grade_ranges = load_grade_ranges()
@@ -156,7 +165,7 @@ if trigger:
             if total_count < 3:
                 st.info("문장이 짧거나 사고도구어가 적어 분석 결과의 신뢰도가 낮을 수 있습니다.")
             if score > 500:
-                st.info("💡 고3 이상 수준으로 매우 높은 사고 수준입니다.")
+                st.info("💡 고3 이상 수준으로 매우 높은 사고도구어 사용입니다.")
             if used_words:
                 st.markdown("### 사용된 사고도구어")
                 for w, l in used_words:
