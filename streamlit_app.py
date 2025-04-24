@@ -68,7 +68,11 @@ def call_vision_api(image_bytes):
         return ""
 
 def calculate_onread_index(text, vocab_dict, grade_ranges):
-    tokens = [t.form for t, _, _ in kiwi.analyze(text)[0][0]]
+   try:
+    analyzed = kiwi.analyze(text)[0][0]
+    tokens = [t.form for t in analyzed]
+except:
+    return 0, "형태소 분석에 실패하였습니다.", [], 0, 0
     seen, used, total, weighted = set(), [], 0, 0
 
     for token in tokens:
