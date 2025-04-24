@@ -47,7 +47,7 @@ def call_vision_api(image_bytes):
 # 온독지수 계산
 def calculate_onread_index(text, vocab_dict, grade_ranges):
     try:
-        tokens = [token.form for token, _, _ in kiwi.analyze(text)[0][0]]
+        tokens = [token.form for token in kiwi.analyze(text)[0][0]]  # ✅ 수정된 부분
     except Exception as e:
         return 0, f"형태소 분석 오류: {e}", [], 0, 0
 
