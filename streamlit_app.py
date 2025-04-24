@@ -8,6 +8,10 @@ from kiwipiepy import Kiwi
 
 kiwi = Kiwi()
 
+# ✅ HEIC 지원 등록
+from pillow_heif import register_heif_opener
+register_heif_opener()
+
 ambiguous_meanings = {
     "기술": {"2": "사물을 잘 다룰 수 있는 방법이나 능력 (기능/방법)", "3": "열거하거나 기록하여 서술함 (기록/서술)"},
     "유형": {"2": "성질이나 특징 따위가 공통적인 것끼리 묶은 하나의 틀", "3": "형상이거나 형체가 있음"},
