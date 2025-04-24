@@ -4,10 +4,8 @@ import re
 import base64
 import requests
 from PIL import Image
-from kiwipiepy import Kiwi
 
-kiwi = Kiwi()
-
+# 🔁 중의어 정의
 ambiguous_meanings = {
     "기술": {"2": "사물을 잘 다룰 수 있는 방법이나 능력 (기능/방법)", "3": "열거하거나 기록하여 서술함 (기록/서술)"},
     "유형": {"2": "성질이나 특징 따위가 공통적인 것끼리 묶은 하나의 틀", "3": "형상이거나 형체가 있음"},
@@ -16,16 +14,19 @@ ambiguous_meanings = {
 }
 ambiguous_words = set(ambiguous_meanings.keys())
 
+prefixes = ["비", "미", "불", "무", "반", "부", "탈", "비非"]  # 접두사 목록
+
+# 🔁 사고도구어 사전 로딩
 @st.cache_data
 def load_vocab():
     df = pd.read_csv("사고도구어(1~4등급)(가공).csv", encoding="utf-8-sig")
     vocab = {}
     for col, level in zip(df.columns, range(1, 5)):
         for word in df[col].dropna():
-            if word.strip() not in ambiguous_words:
-                vocab[word.strip()] = level
+            vocab[word.strip()] = level
     return vocab
 
+# 🔁 온독지수 등급 범위 로딩
 @st.cache_data
 def load_grade_ranges():
     df = pd.read_csv("온독지수범위.csv", encoding="utf-8-sig")
@@ -38,6 +39,7 @@ def load_grade_ranges():
             continue
     return ranges
 
+# 🔁 Vision API OCR 호출
 def call_vision_api(image_bytes):
     api_key = st.secrets["vision_api_key"]
     url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
@@ -50,15 +52,15 @@ def call_vision_api(image_bytes):
     except:
         return ""
 
+# 🔁 온독지수 계산 함수 (kiwi 없이)
 def calculate_onread_index(text, vocab_dict, grade_ranges, user_choices=None):
-    try:
-        tokens = [token.form for token in kiwi.analyze(text)[0][0]]
-    except Exception as e:
-        return 0, f"형태소 분석 오류: {e}", [], 0, 0
+    sorted_vocab = sorted(vocab_dict.items(), key=lambda x: -len(x[0]))
+    tokens = re.findall(r"\b[\w가-힣]+\b", text)
 
     seen, used, total, weighted = set(), [], 0, 0
 
     for token in tokens:
+        # 1. 사용자 선택한 중의어 우선
         if token in ambiguous_words and user_choices and token in user_choices:
             level = user_choices[token]
             if token not in seen:
@@ -68,13 +70,30 @@ def calculate_onread_index(text, vocab_dict, grade_ranges, user_choices=None):
                 weighted += level
             continue
 
-        for vocab_word, level in vocab_dict.items():
-            if vocab_word in token and token not in seen:
-                seen.add(token)
-                used.append((vocab_word, level))
+        # 2. 정확 일치
+        matched = False
+        for word, level in sorted_vocab:
+            if token == word and word not in seen:
+                seen.add(word)
+                used.append((word, level))
                 total += 1
                 weighted += level
+                matched = True
                 break
+        if matched:
+            continue
+
+        # 3. 접두사 제거 후 어근 매칭
+        for prefix in prefixes:
+            if token.startswith(prefix):
+                stem = token[len(prefix):]
+                if stem in vocab_dict and stem not in seen:
+                    level = user_choices[stem] if stem in ambiguous_words and user_choices and stem in user_choices else vocab_dict[stem]
+                    seen.add(stem)
+                    used.append((stem, level))
+                    total += 1
+                    weighted += level
+                    break
 
     if total == 0:
         return 0, "사고도구어가 감지되지 않았습니다.", [], 0, 0
@@ -92,7 +111,7 @@ def calculate_onread_index(text, vocab_dict, grade_ranges, user_choices=None):
     level = "~".join(matched) if matched else "해석 불가"
     return round(index), level, used, total, len(word_tokens)
 
-# ✅ Streamlit 앱
+# ✅ Streamlit 앱 시작
 st.title("📘 온독지수 자동 분석기")
 
 vocab_dict = load_vocab()
@@ -149,4 +168,3 @@ if trigger or any(st.session_state.get(f"choice_{w}") for w in ambiguous_words):
                     st.markdown(f"- **{w}**: {l}등급")
     else:
         st.warning("❗ 문장을 입력한 뒤 '분석하기' 버튼을 눌러주세요.")
-
